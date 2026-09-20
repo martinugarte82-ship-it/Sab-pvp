@@ -1,0 +1,1821 @@
+--========================================================
+-- CONTROL GUI + FAST PROXIMITY PREPARATION
+--========================================================
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+
+--========================================================
+-- CONFIGURACIÓN
+--========================================================
+
+local MAX_VALUE = 80
+
+--========================================================
+-- FAST PROXIMITY
+--========================================================
+
+local FAST_PROMPTS_ENABLED = true
+
+local FAST_PRELOAD_DISTANCE = 10
+
+-- Tiempo que tarda en completarse la preparación
+local FAST_PREP_TIME = 1
+
+-- Tiempo final de activación
+local FAST_FINAL_HOLD = 0.1
+
+local FAST_PROMPT_COOLDOWN = 0.25
+
+--========================================================
+-- RANGOS DEL ARO
+--========================================================
+
+local RANGE_VALUES = {
+	5,
+	10,
+	15,
+	20,
+	25,
+	30,
+	40,
+	50,
+	60,
+	75,
+	100
+}
+
+-- 10 al iniciar
+local rangeIndex = 2
+
+--========================================================
+-- AUTO BAT
+--========================================================
+
+-- Velocidad fija mientras Auto Bat está activo
+local AUTO_BAT_SPEED = 80
+
+local AUTO_BAT_DISTANCE = 0.1
+
+local AUTO_BAT_UPDATE = 0.05
+
+local AUTO_BAT_ATTACK_DELAY = 0.12
+
+local autoBatLastAttack = 0
+
+--========================================================
+-- TP
+--========================================================
+
+local TP_Y = -7.2
+
+--========================================================
+-- VARIABLES DEL PERSONAJE
+--========================================================
+
+local character = nil
+local humanoid = nil
+local rootPart = nil
+
+local currentSpeed = 16
+local currentGravity = Workspace.Gravity
+local currentJump = 50
+
+local autoBatEnabled = false
+local boostEnabled = false
+
+--========================================================
+-- FAST PROMPT VARIABLES
+--========================================================
+
+local trackedPrompts = {}
+local promptCooldowns = {}
+local originalHoldDurations = {}
+
+local preparedPrompt = nil
+local preparationProgress = 0
+
+--========================================================
+-- CONFIGURAR PERSONAJE
+--========================================================
+
+local function setupCharacter(char)
+
+	character = char
+
+	humanoid =
+		char:WaitForChild(
+			"Humanoid",
+			10
+		)
+
+	rootPart =
+		char:WaitForChild(
+			"HumanoidRootPart",
+			10
+		)
+
+	if humanoid then
+
+		humanoid.WalkSpeed =
+			currentSpeed
+
+		humanoid.UseJumpPower =
+			true
+
+		humanoid.JumpPower =
+			currentJump
+
+		humanoid.AutoRotate =
+			true
+
+		-- Por defecto se permite escalar.
+		humanoid:SetStateEnabled(
+			Enum.HumanoidStateType.Climbing,
+			true
+		)
+	end
+end
+
+if player.Character then
+
+	setupCharacter(
+		player.Character
+	)
+end
+
+player.CharacterAdded:Connect(
+	setupCharacter
+)
+
+--========================================================
+-- SCREEN GUI
+--========================================================
+
+local screenGui =
+	Instance.new("ScreenGui")
+
+screenGui.Name =
+	"ControlGui"
+
+screenGui.ResetOnSpawn =
+	false
+
+screenGui.IgnoreGuiInset =
+	true
+
+screenGui.Parent =
+	player:WaitForChild(
+		"PlayerGui"
+	)
+
+--========================================================
+-- BOTÓN S
+--========================================================
+
+local showButton =
+	Instance.new("TextButton")
+
+showButton.Name =
+	"ShowButton"
+
+showButton.Size =
+	UDim2.new(
+		0,
+		38,
+		0,
+		38
+	)
+
+showButton.Position =
+	UDim2.new(
+		0,
+		8,
+		0.5,
+		-19
+	)
+
+showButton.BackgroundColor3 =
+	Color3.fromRGB(
+		45,
+		45,
+		45
+	)
+
+showButton.Text =
+	"S"
+
+showButton.TextColor3 =
+	Color3.fromRGB(
+		255,
+		255,
+		255
+	)
+
+showButton.TextScaled =
+	true
+
+showButton.Font =
+	Enum.Font.GothamBold
+
+showButton.BorderSizePixel =
+	0
+
+showButton.Visible =
+	true
+
+showButton.Parent =
+	screenGui
+
+local showCorner =
+	Instance.new("UICorner")
+
+showCorner.CornerRadius =
+	UDim.new(
+		0,
+		8
+	)
+
+showCorner.Parent =
+	showButton
+
+--========================================================
+-- PANEL PRINCIPAL
+--========================================================
+
+local mainFrame =
+	Instance.new("Frame")
+
+mainFrame.Name =
+	"MainFrame"
+
+mainFrame.Size =
+	UDim2.new(
+		0,
+		250,
+		0,
+		245
+	)
+
+mainFrame.Position =
+	UDim2.new(
+		0,
+		8,
+		0.5,
+		-122
+	)
+
+mainFrame.BackgroundColor3 =
+	Color3.fromRGB(
+		30,
+		30,
+		30
+	)
+
+mainFrame.BorderSizePixel =
+	0
+
+-- OCULTO AL INICIAR
+mainFrame.Visible =
+	false
+
+mainFrame.Parent =
+	screenGui
+
+local mainCorner =
+	Instance.new("UICorner")
+
+mainCorner.CornerRadius =
+	UDim.new(
+		0,
+		10
+	)
+
+mainCorner.Parent =
+	mainFrame
+
+--========================================================
+-- TÍTULO
+--========================================================
+
+local title =
+	Instance.new("TextLabel")
+
+title.Name =
+	"Title"
+
+title.Size =
+	UDim2.new(
+		1,
+		-45,
+		0,
+		35
+	)
+
+title.Position =
+	UDim2.new(
+		0,
+		10,
+		0,
+		2
+	)
+
+title.BackgroundTransparency =
+	1
+
+title.Text =
+	"Controles"
+
+title.TextColor3 =
+	Color3.fromRGB(
+		255,
+		255,
+		255
+	)
+
+title.TextSize =
+	20
+
+title.Font =
+	Enum.Font.GothamBold
+
+title.TextXAlignment =
+	Enum.TextXAlignment.Left
+
+title.Parent =
+	mainFrame
+
+--========================================================
+-- BOTÓN X
+--========================================================
+
+local hideButton =
+	Instance.new("TextButton")
+
+hideButton.Name =
+	"HideButton"
+
+hideButton.Size =
+	UDim2.new(
+		0,
+		30,
+		0,
+		30
+	)
+
+hideButton.Position =
+	UDim2.new(
+		1,
+		-35,
+		0,
+		4
+	)
+
+hideButton.BackgroundColor3 =
+	Color3.fromRGB(
+		55,
+		55,
+		55
+	)
+
+hideButton.Text =
+	"X"
+
+hideButton.TextColor3 =
+	Color3.fromRGB(
+		255,
+		255,
+		255
+	)
+
+hideButton.TextSize =
+	17
+
+hideButton.Font =
+	Enum.Font.GothamBold
+
+hideButton.BorderSizePixel =
+	0
+
+hideButton.Parent =
+	mainFrame
+
+local hideCorner =
+	Instance.new("UICorner")
+
+hideCorner.CornerRadius =
+	UDim.new(
+		0,
+		7
+	)
+
+hideCorner.Parent =
+	hideButton
+
+--========================================================
+-- FUNCIÓN PARA CREAR SLIDER
+--========================================================
+
+local function createSlider(
+	parent,
+	y,
+	labelText,
+	defaultValue,
+	callback
+)
+
+	local container =
+		Instance.new("Frame")
+
+	container.Size =
+		UDim2.new(
+			1,
+			-20,
+			0,
+			47
+		)
+
+	container.Position =
+		UDim2.new(
+			0,
+			10,
+			0,
+			y
+		)
+
+	container.BackgroundTransparency =
+		1
+
+	container.Parent =
+		parent
+
+	--====================================================
+	-- LABEL
+	--====================================================
+
+	local label =
+		Instance.new("TextLabel")
+
+	label.Size =
+		UDim2.new(
+			0,
+			85,
+			0,
+			20
+		)
+
+	label.Position =
+		UDim2.new(
+			0,
+			0,
+			0,
+			1
+		)
+
+	label.BackgroundTransparency =
+		1
+
+	label.Text =
+		labelText
+
+	label.TextColor3 =
+		Color3.fromRGB(
+			220,
+			220,
+			220
+		)
+
+	label.TextSize =
+		14
+
+	label.Font =
+		Enum.Font.Gotham
+
+	label.TextXAlignment =
+		Enum.TextXAlignment.Left
+
+	label.Parent =
+		container
+
+	--====================================================
+	-- CAJA DE VALOR
+	--====================================================
+
+	local valueBox =
+		Instance.new("TextBox")
+
+	valueBox.Size =
+		UDim2.new(
+			0,
+			45,
+			0,
+			22
+		)
+
+	valueBox.Position =
+		UDim2.new(
+			1,
+			-45,
+			0,
+			0
+		)
+
+	valueBox.BackgroundColor3 =
+		Color3.fromRGB(
+			50,
+			50,
+			50
+		)
+
+	valueBox.TextColor3 =
+		Color3.fromRGB(
+			255,
+			255,
+			255
+		)
+
+	valueBox.Text =
+		tostring(
+			defaultValue
+		)
+
+	valueBox.TextSize =
+		13
+
+	valueBox.Font =
+		Enum.Font.Gotham
+
+	valueBox.ClearTextOnFocus =
+		false
+
+	valueBox.BorderSizePixel =
+		0
+
+	valueBox.Parent =
+		container
+
+	local valueCorner =
+		Instance.new("UICorner")
+
+	valueCorner.CornerRadius =
+		UDim.new(
+			0,
+			5
+		)
+
+	valueCorner.Parent =
+		valueBox
+
+	--====================================================
+	-- BARRA
+	--====================================================
+
+	local sliderBar =
+		Instance.new("Frame")
+
+	sliderBar.Size =
+		UDim2.new(
+			1,
+			-95,
+			0,
+			10
+		)
+
+	sliderBar.Position =
+		UDim2.new(
+			0,
+			0,
+			0,
+			28
+		)
+
+	sliderBar.BackgroundColor3 =
+		Color3.fromRGB(
+			70,
+			70,
+			70
+		)
+
+	sliderBar.BorderSizePixel =
+		0
+
+	sliderBar.Parent =
+		container
+
+	local sliderCorner =
+		Instance.new("UICorner")
+
+	sliderCorner.CornerRadius =
+		UDim.new(
+			1,
+			0
+		)
+
+	sliderCorner.Parent =
+		sliderBar
+
+	--====================================================
+	-- FILL
+	--====================================================
+
+	local sliderFill =
+		Instance.new("Frame")
+
+	-- Visualmente comienza al 50%
+	sliderFill.Size =
+		UDim2.new(
+			0.5,
+			0,
+			1,
+			0
+		)
+
+	sliderFill.BackgroundColor3 =
+		Color3.fromRGB(
+			190,
+			190,
+			190
+		)
+
+	sliderFill.BorderSizePixel =
+		0
+
+	sliderFill.Parent =
+		sliderBar
+
+	local fillCorner =
+		Instance.new("UICorner")
+
+	fillCorner.CornerRadius =
+		UDim.new(
+			1,
+			0
+		)
+
+	fillCorner.Parent =
+		sliderFill
+
+	local dragging =
+		false
+
+	--====================================================
+	-- CAMBIAR VALOR
+	--====================================================
+
+	local function setValue(value)
+
+		value =
+			math.clamp(
+				math.floor(
+					value + 0.5
+				),
+				0,
+				MAX_VALUE
+			)
+
+		valueBox.Text =
+			tostring(
+				value
+			)
+
+		sliderFill.Size =
+			UDim2.new(
+				value / MAX_VALUE,
+				0,
+				1,
+				0
+			)
+
+		callback(
+			value
+		)
+	end
+
+	--====================================================
+	-- ACTUALIZAR CON MOUSE
+	--====================================================
+
+	local function updateFromMouse(x)
+
+		local barX =
+			sliderBar.AbsolutePosition.X
+
+		local barWidth =
+			sliderBar.AbsoluteSize.X
+
+		local percentage =
+			math.clamp(
+				(
+					x - barX
+				)
+				/
+				barWidth,
+				0,
+				1
+			)
+
+		setValue(
+			percentage
+				* MAX_VALUE
+		)
+	end
+
+	--====================================================
+	-- INICIAR DRAG
+	--====================================================
+
+	sliderBar.InputBegan:Connect(
+		function(input)
+
+			if input.UserInputType ==
+				Enum.UserInputType.MouseButton1
+
+				or
+
+				input.UserInputType ==
+				Enum.UserInputType.Touch then
+
+				dragging =
+					true
+
+				updateFromMouse(
+					input.Position.X
+				)
+			end
+		end
+	)
+
+	--====================================================
+	-- DRAG
+	--====================================================
+
+	UserInputService.InputChanged:Connect(
+		function(input)
+
+			if not dragging then
+				return
+			end
+
+			if input.UserInputType ==
+				Enum.UserInputType.MouseMovement
+
+				or
+
+				input.UserInputType ==
+				Enum.UserInputType.Touch then
+
+				updateFromMouse(
+					input.Position.X
+				)
+			end
+		end
+	)
+
+	--====================================================
+	-- SOLTAR
+	--====================================================
+
+	UserInputService.InputEnded:Connect(
+		function(input)
+
+			if input.UserInputType ==
+				Enum.UserInputType.MouseButton1
+
+				or
+
+				input.UserInputType ==
+				Enum.UserInputType.Touch then
+
+				dragging =
+					false
+			end
+		end
+	)
+
+	--====================================================
+	-- ESCRIBIR VALOR
+	--====================================================
+
+	valueBox.FocusLost:Connect(
+		function()
+
+			local value =
+				tonumber(
+					valueBox.Text
+				)
+
+			if value then
+
+				setValue(
+					value
+				)
+
+			else
+
+				valueBox.Text =
+					tostring(
+						defaultValue
+					)
+			end
+		end
+	)
+end
+
+--========================================================
+-- SLIDER VELOCIDAD
+--========================================================
+
+createSlider(
+	mainFrame,
+	38,
+	"Velocidad",
+	currentSpeed,
+	function(value)
+
+		currentSpeed =
+			value
+
+		if humanoid
+			and not autoBatEnabled then
+
+			humanoid.WalkSpeed =
+				value
+		end
+	end
+)
+
+--========================================================
+-- SLIDER GRAVEDAD
+--========================================================
+
+createSlider(
+	mainFrame,
+	85,
+	"Gravedad",
+	currentGravity,
+	function(value)
+
+		currentGravity =
+			value
+
+		Workspace.Gravity =
+			value
+	end
+)
+
+--========================================================
+-- SLIDER SALTO
+--========================================================
+
+createSlider(
+	mainFrame,
+	132,
+	"Salto",
+	currentJump,
+	function(value)
+
+		currentJump =
+			value
+
+		if humanoid then
+
+			humanoid.UseJumpPower =
+				true
+
+			humanoid.JumpPower =
+				value
+		end
+	end
+)
+
+--========================================================
+-- BOOST
+--========================================================
+
+local boostButton =
+	Instance.new("TextButton")
+
+boostButton.Name =
+	"Boost"
+
+boostButton.Size =
+	UDim2.new(
+		0,
+		105,
+		0,
+		33
+	)
+
+boostButton.Position =
+	UDim2.new(
+		0,
+		10,
+		1,
+		-43
+	)
+
+boostButton.BackgroundColor3 =
+	Color3.fromRGB(
+		45,
+		45,
+		45
+	)
+
+boostButton.Text =
+	"BOOST"
+
+boostButton.TextColor3 =
+	Color3.fromRGB(
+		255,
+		255,
+		255
+	)
+
+boostButton.TextSize =
+	14
+
+boostButton.Font =
+	Enum.Font.GothamBold
+
+boostButton.BorderSizePixel =
+	0
+
+boostButton.Parent =
+	mainFrame
+
+local boostCorner =
+	Instance.new("UICorner")
+
+boostCorner.CornerRadius =
+	UDim.new(
+		0,
+		7
+	)
+
+boostCorner.Parent =
+	boostButton
+
+--========================================================
+-- MOSTRAR / OCULTAR
+--========================================================
+
+hideButton.MouseButton1Click:Connect(
+	function()
+
+		mainFrame.Visible =
+			false
+
+		showButton.Visible =
+			true
+	end
+)
+
+showButton.MouseButton1Click:Connect(
+	function()
+
+		mainFrame.Visible =
+			true
+
+		showButton.Visible =
+			false
+	end
+)
+
+--========================================================
+-- BOOST
+--========================================================
+
+local originalGlobalShadows =
+	Lighting.GlobalShadows
+
+local originalDiffuse =
+	Lighting.EnvironmentDiffuseScale
+
+local originalSpecular =
+	Lighting.EnvironmentSpecularScale
+
+local function applyBoost()
+
+	for _, object in ipairs(
+		Workspace:GetDescendants()
+	) do
+
+		if object:IsA(
+			"BasePart"
+		) then
+
+			object.Material =
+				Enum.Material.SmoothPlastic
+
+			object.CastShadow =
+				false
+
+			object.Reflectance =
+				0
+		end
+
+		if object:IsA(
+			"PointLight"
+		)
+		or object:IsA(
+			"SpotLight"
+		)
+		or object:IsA(
+			"SurfaceLight"
+		) then
+
+			object.Enabled =
+				false
+		end
+	end
+
+	Lighting.GlobalShadows =
+		false
+
+	Lighting.EnvironmentDiffuseScale =
+		0
+
+	Lighting.EnvironmentSpecularScale =
+		0
+end
+
+boostButton.MouseButton1Click:Connect(
+	function()
+
+		boostEnabled =
+			not boostEnabled
+
+		if boostEnabled then
+
+			applyBoost()
+
+			boostButton.BackgroundColor3 =
+				Color3.fromRGB(
+					75,
+					75,
+					75
+				)
+
+			boostButton.Text =
+				"BOOST ON"
+
+		else
+
+			Lighting.GlobalShadows =
+				originalGlobalShadows
+
+			Lighting.EnvironmentDiffuseScale =
+				originalDiffuse
+
+			Lighting.EnvironmentSpecularScale =
+				originalSpecular
+
+			boostButton.BackgroundColor3 =
+				Color3.fromRGB(
+					45,
+					45,
+					45
+				)
+
+			boostButton.Text =
+				"BOOST"
+		end
+	end
+)
+
+--========================================================
+-- BOTONES INDEPENDIENTES
+--========================================================
+
+local function createIndependentButton(
+	name,
+	text
+)
+
+	local button =
+		Instance.new("TextButton")
+
+	button.Name =
+		name
+
+	button.Size =
+		UDim2.new(
+			0,
+			52,
+			0,
+			52
+		)
+
+	button.AnchorPoint =
+		Vector2.new(
+			1,
+			0.5
+		)
+
+	button.BackgroundColor3 =
+		Color3.fromRGB(
+			45,
+			45,
+			45
+		)
+
+	button.Text =
+		text
+
+	button.TextColor3 =
+		Color3.fromRGB(
+			255,
+			255,
+			255
+		)
+
+	button.TextSize =
+		11
+
+	button.Font =
+		Enum.Font.GothamBold
+
+	button.BorderSizePixel =
+		0
+
+	button.Parent =
+		screenGui
+
+	local corner =
+		Instance.new("UICorner")
+
+	corner.CornerRadius =
+		UDim.new(
+			0,
+			11
+		)
+
+	corner.Parent =
+		button
+
+	return button
+end
+
+local dropButton =
+	createIndependentButton(
+		"DROP",
+		"DROP"
+	)
+
+local tpButton =
+	createIndependentButton(
+		"TP",
+		"TP"
+	)
+
+local autoBatButton =
+	createIndependentButton(
+		"AutoBat",
+		"AUTO\nBAT"
+	)
+
+--========================================================
+-- POSICIONES DE BOTONES
+--========================================================
+
+local BUTTON_X =
+	-12
+
+dropButton.Position =
+	UDim2.new(
+		1,
+		BUTTON_X,
+		0.5,
+		-70
+	)
+
+tpButton.Position =
+	UDim2.new(
+		1,
+		BUTTON_X,
+		0.5,
+		0
+	)
+
+autoBatButton.Position =
+	UDim2.new(
+		1,
+		BUTTON_X,
+		0.5,
+		70
+	)
+
+--========================================================
+-- DROP
+--========================================================
+
+dropButton.MouseButton1Click:Connect(
+	function()
+
+		if not character then
+			return
+		end
+
+		for _, object in ipairs(
+			Workspace:GetDescendants()
+		) do
+
+			if object:IsA(
+				"WeldConstraint"
+			)
+			and object.Name ==
+				"CarryWeld" then
+
+				local part0 =
+					object.Part0
+
+				local part1 =
+					object.Part1
+
+				local connectedToCharacter =
+					(
+						part0
+						and part0:IsDescendantOf(
+							character
+						)
+					)
+					or
+					(
+						part1
+						and part1:IsDescendantOf(
+							character
+						)
+					)
+
+				if connectedToCharacter then
+
+					local box =
+						nil
+
+					if part0
+						and not part0:IsDescendantOf(
+							character
+						) then
+
+						box =
+							part0
+
+					elseif part1
+						and not part1:IsDescendantOf(
+							character
+						) then
+
+						box =
+							part1
+					end
+
+					object:Destroy()
+
+					if box
+						and box:IsA(
+							"BasePart"
+						) then
+
+						box.Anchored =
+							false
+
+						box.CanCollide =
+							true
+					end
+				end
+			end
+		end
+	end
+)
+
+--========================================================
+-- TP
+--========================================================
+
+tpButton.MouseButton1Click:Connect(
+	function()
+
+		if not rootPart then
+			return
+		end
+
+		local currentPosition =
+			rootPart.Position
+
+		rootPart.CFrame =
+			CFrame.new(
+				currentPosition.X,
+				TP_Y,
+				currentPosition.Z
+			)
+	end
+)
+
+--========================================================
+-- BUSCAR HUMANOID MÁS CERCANO
+--========================================================
+
+local function getNearestHumanoid()
+
+	if not rootPart then
+
+		return nil,
+			math.huge
+	end
+
+	local nearestHumanoid =
+		nil
+
+	local nearestDistance =
+		math.huge
+
+	for _, object in ipairs(
+		Workspace:GetDescendants()
+	) do
+
+		if object:IsA(
+			"Humanoid"
+		)
+		and object ~= humanoid
+		and object.Health > 0 then
+
+			local model =
+				object.Parent
+
+			if model
+				and model:IsA(
+					"Model"
+				) then
+
+				local targetRoot =
+					model:FindFirstChild(
+						"HumanoidRootPart"
+					)
+					or
+					model:FindFirstChild(
+						"UpperTorso"
+					)
+					or
+					model:FindFirstChild(
+						"Torso"
+					)
+
+				if targetRoot
+					and targetRoot:IsA(
+						"BasePart"
+					) then
+
+					local distance =
+						(
+							rootPart.Position
+							-
+							targetRoot.Position
+						).Magnitude
+
+					if distance <
+						nearestDistance then
+
+						nearestDistance =
+							distance
+
+						nearestHumanoid =
+							object
+					end
+				end
+			end
+		end
+	end
+
+	return nearestHumanoid,
+		nearestDistance
+end
+
+--========================================================
+-- MIRAR AL OBJETIVO
+--========================================================
+
+local function lookAtTarget(
+	targetRoot
+)
+
+	if not rootPart
+		or not targetRoot then
+
+		return
+	end
+
+	local currentPosition =
+		rootPart.Position
+
+	-- Mirar horizontalmente.
+	-- No inclina el personaje.
+	local lookPosition =
+		Vector3.new(
+			targetRoot.Position.X,
+			currentPosition.Y,
+			targetRoot.Position.Z
+		)
+
+	local direction =
+		lookPosition
+		-
+		currentPosition
+
+	if direction.Magnitude <=
+		0.001 then
+
+		return
+	end
+
+	rootPart.CFrame =
+		CFrame.lookAt(
+			currentPosition,
+			lookPosition
+		)
+end
+	
+--========================================================
+-- BUSCAR BATE
+--========================================================
+
+local function findBat()
+    local character = player.Character
+    if not character then
+        return nil
+    end
+
+    -- Buscar primero en el personaje
+    for _, obj in ipairs(character:GetChildren()) do
+        if obj:IsA("Tool") and string.find(string.lower(obj.Name), "bat") then
+            return obj
+        end
+    end
+
+    -- Buscar en la mochila
+    local backpack = player:FindFirstChildOfClass("Backpack")
+
+    if backpack then
+        for _, obj in ipairs(backpack:GetChildren()) do
+            if obj:IsA("Tool") and string.find(string.lower(obj.Name), "bat") then
+                return obj
+            end
+        end
+    end
+
+    return nil
+end
+
+
+--========================================================
+-- USAR BATE
+--========================================================
+
+local function useBat()
+    local character = player.Character
+    if not character then
+        return
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then
+        return
+    end
+
+    local bat = findBat()
+
+    if not bat then
+        return
+    end
+
+    -- Equipar si está en la mochila
+    if bat.Parent ~= character then
+        humanoid:EquipTool(bat)
+        task.wait(0.05)
+    end
+
+    -- Activar el bate
+    if bat.Parent == character then
+        pcall(function()
+            bat:Activate()
+        end)
+    end
+end
+
+
+--========================================================
+-- BUSCAR JUGADOR MÁS CERCANO
+--========================================================
+
+local function getNearestTarget()
+    local character = player.Character
+    if not character then
+        return nil
+    end
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then
+        return nil
+    end
+
+    local nearestTarget = nil
+    local nearestDistance = math.huge
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Humanoid") and obj.Health > 0 then
+
+            local targetCharacter = obj.Parent
+
+            if targetCharacter
+                and targetCharacter:IsA("Model")
+                and targetCharacter ~= character then
+
+                local targetRoot =
+                    targetCharacter:FindFirstChild("HumanoidRootPart")
+
+                if targetRoot then
+
+                    local distance =
+                        (root.Position - targetRoot.Position).Magnitude
+
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestTarget = targetCharacter
+                    end
+                end
+            end
+        end
+    end
+
+    return nearestTarget
+end
+
+
+--========================================================
+-- AUTO BAT
+--========================================================
+
+local autoBatRunning = false
+
+local function startAutoBat()
+
+    if autoBatRunning then
+        return
+    end
+
+    autoBatRunning = true
+
+    task.spawn(function()
+
+        while autoBatRunning do
+
+            local character = player.Character
+
+            if not character then
+                task.wait()
+                continue
+            end
+
+            local humanoid =
+                character:FindFirstChildOfClass("Humanoid")
+
+            local root =
+                character:FindFirstChild("HumanoidRootPart")
+
+            if not humanoid or not root then
+                task.wait()
+                continue
+            end
+
+            local target = getNearestTarget()
+
+            if target then
+
+                local targetRoot =
+                    target:FindFirstChild("HumanoidRootPart")
+
+                local targetHumanoid =
+                    target:FindFirstChildOfClass("Humanoid")
+
+                if targetRoot
+                    and targetHumanoid
+                    and targetHumanoid.Health > 0 then
+
+                    --================================================
+                    -- MIRAR AL OBJETIVO
+                    --================================================
+
+                    local targetPosition = targetRoot.Position
+
+                    local lookPosition = Vector3.new(
+                        targetPosition.X,
+                        root.Position.Y,
+                        targetPosition.Z
+                    )
+
+                    root.CFrame =
+                        CFrame.lookAt(
+                            root.Position,
+                            lookPosition
+                        )
+
+
+                    --================================================
+                    -- MOVERSE HACIA EL OBJETIVO
+                    --================================================
+
+                    humanoid:MoveTo(targetPosition)
+
+
+                    --================================================
+                    -- DISTANCIA PARA USAR EL BATE
+                    --================================================
+
+                    local distance =
+                        (root.Position - targetRoot.Position).Magnitude
+
+                    if distance <= AUTO_BAT_DISTANCE then
+
+                        useBat()
+
+                        task.wait(PROXIMITY_DELAY)
+
+                    else
+
+                        task.wait()
+
+                    end
+                else
+                    task.wait()
+                end
+
+            else
+                task.wait()
+            end
+        end
+    end)
+end
+
+
+--========================================================
+-- DETENER AUTO BAT
+--========================================================
+
+local function stopAutoBat()
+
+    autoBatRunning = false
+
+    local character = player.Character
+
+    if not character then
+        return
+    end
+
+    local humanoid =
+        character:FindFirstChildOfClass("Humanoid")
+
+    if humanoid then
+
+        humanoid.AutoRotate = true
+
+        -- Restaurar velocidad seleccionada
+        humanoid.WalkSpeed = currentSpeed
+
+        -- Volver a permitir escalar
+        pcall(function()
+            humanoid:SetStateEnabled(
+                Enum.HumanoidStateType.Climbing,
+                true
+            )
+        end)
+    end
+end
+
+
+--========================================================
+-- BOTÓN AUTO BAT
+--========================================================
+
+autoBatButton.MouseButton1Click:Connect(function()
+
+    autoBatEnabled = not autoBatEnabled
+
+    if autoBatEnabled then
+
+        autoBatButton.Text = "AUTO\nON"
+
+        autoBatButton.BackgroundColor3 =
+            Color3.fromRGB(75, 75, 75)
+
+        local character = player.Character
+
+        if character then
+
+            local humanoid =
+                character:FindFirstChildOfClass("Humanoid")
+
+            if humanoid then
+
+                humanoid.AutoRotate = false
+
+                humanoid.WalkSpeed = AUTO_BAT_SPEED
+
+                -- Impedir que trepe a otros personajes
+                pcall(function()
+                    humanoid:SetStateEnabled(
+                        Enum.HumanoidStateType.Climbing,
+                        false
+                    )
+                end)
+            end
+        end
+
+        startAutoBat()
+
+    else
+
+        autoBatButton.Text = "AUTO\nBAT"
+
+        autoBatButton.BackgroundColor3 =
+            Color3.fromRGB(45, 45, 45)
+
+        stopAutoBat()
+    end
+end)
+
+
+--========================================================
+-- AL REAPARECER
+--========================================================
+
+player.CharacterAdded:Connect(function(character)
+
+    task.wait(0.5)
+
+    local humanoid =
+        character:WaitForChild("Humanoid", 5)
+
+    if not humanoid then
+        return
+    end
+
+    humanoid.JumpPower = currentJump
+
+    if autoBatEnabled then
+
+        humanoid.AutoRotate = false
+        humanoid.WalkSpeed = AUTO_BAT_SPEED
+
+        pcall(function()
+            humanoid:SetStateEnabled(
+                Enum.HumanoidStateType.Climbing,
+                false
+            )
+        end)
+
+    else
+
+        humanoid.WalkSpeed = currentSpeed
+    end
+end)
+
+
+--========================================================
+-- MANTENER VALORES
+--========================================================
+
+task.spawn(function()
+
+    while true do
+
+        local character = player.Character
+
+        if character then
+
+            local humanoid =
+                character:FindFirstChildOfClass("Humanoid")
+
+            if humanoid then
+
+                if autoBatEnabled then
+                    humanoid.WalkSpeed = AUTO_BAT_SPEED
+                else
+                    humanoid.WalkSpeed = currentSpeed
+                end
+
+                humanoid.JumpPower = currentJump
+            end
+        end
+
+        task.wait(0.25)
+    end
+end)
+
+
+--========================================================
+-- FIN DEL SCRIPT
+--========================================================
