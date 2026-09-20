@@ -1,14 +1,16 @@
 --========================================================
--- CONTROL GUI + FAST PROXIMITY PREPARATION
+-- CONTROL GUI - PC + TELÉFONO
+-- PARTE 1/2
 --========================================================
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local Lighting = game:GetService("Lighting")
-local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
 --========================================================
 -- CONFIGURACIÓN
@@ -16,1544 +18,474 @@ local player = Players.LocalPlayer
 
 local MAX_VALUE = 80
 
---========================================================
--- FAST PROXIMITY
---========================================================
+local AUTO_BAT_DISTANCE = 0.1
+local AUTO_BAT_SPEED = 80
+local PROXIMITY_DELAY = 0.5
 
 local FAST_PROMPTS_ENABLED = true
-
 local FAST_PRELOAD_DISTANCE = 10
-
--- Tiempo que tarda en completarse la preparación
 local FAST_PREP_TIME = 1
-
--- Tiempo final de activación
 local FAST_FINAL_HOLD = 0.1
-
 local FAST_PROMPT_COOLDOWN = 0.25
 
---========================================================
--- RANGOS DEL ARO
---========================================================
-
-local RANGE_VALUES = {
-	5,
-	10,
-	15,
-	20,
-	25,
-	30,
-	40,
-	50,
-	60,
-	75,
-	100
+local PRELOAD_OPTIONS = {
+	5, 10, 15, 20, 25, 30,
+	40, 50, 60, 75, 100
 }
 
--- 10 al iniciar
-local rangeIndex = 2
-
 --========================================================
--- AUTO BAT
+-- VALORES
 --========================================================
-
--- Velocidad fija mientras Auto Bat está activo
-local AUTO_BAT_SPEED = 80
-
-local AUTO_BAT_DISTANCE = 0.1
-
-local AUTO_BAT_UPDATE = 0.05
-
-local AUTO_BAT_ATTACK_DELAY = 0.12
-
-local autoBatLastAttack = 0
-
---========================================================
--- TP
---========================================================
-
-local TP_Y = -7.2
-
---========================================================
--- VARIABLES DEL PERSONAJE
---========================================================
-
-local character = nil
-local humanoid = nil
-local rootPart = nil
 
 local currentSpeed = 16
-local currentGravity = Workspace.Gravity
+local currentGravity = 196.2
 local currentJump = 50
 
 local autoBatEnabled = false
 local boostEnabled = false
 
 --========================================================
--- FAST PROMPT VARIABLES
+-- ELIMINAR GUI ANTERIOR
 --========================================================
 
-local trackedPrompts = {}
-local promptCooldowns = {}
-local originalHoldDurations = {}
+local oldGui = playerGui:FindFirstChild("ControlGui")
 
-local preparedPrompt = nil
-local preparationProgress = 0
+if oldGui then
+	oldGui:Destroy()
+end
 
 --========================================================
--- CONFIGURAR PERSONAJE
+-- GUI PRINCIPAL
 --========================================================
 
-local function setupCharacter(char)
+local gui = Instance.new("ScreenGui")
+gui.Name = "ControlGui"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = false
+gui.DisplayOrder = 100
+gui.Parent = playerGui
 
-	character = char
+--========================================================
+-- UISCALE
+--========================================================
 
-	humanoid =
-		char:WaitForChild(
-			"Humanoid",
-			10
-		)
+local uiScale = Instance.new("UIScale")
+uiScale.Scale = 1
+uiScale.Parent = gui
 
-	rootPart =
-		char:WaitForChild(
-			"HumanoidRootPart",
-			10
-		)
+local function updateUIScale()
+	local camera = workspace.CurrentCamera
 
-	if humanoid then
+	if not camera then
+		return
+	end
 
-		humanoid.WalkSpeed =
-			currentSpeed
+	local viewport = camera.ViewportSize
 
-		humanoid.UseJumpPower =
-			true
-
-		humanoid.JumpPower =
-			currentJump
-
-		humanoid.AutoRotate =
-			true
-
-		-- Por defecto se permite escalar.
-		humanoid:SetStateEnabled(
-			Enum.HumanoidStateType.Climbing,
-			true
-		)
+	-- Ajuste especial para teléfonos
+	if viewport.X < 600 then
+		uiScale.Scale = math.clamp(viewport.X / 430, 0.78, 1)
+	else
+		uiScale.Scale = 1
 	end
 end
 
-if player.Character then
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	task.wait()
+	updateUIScale()
+end)
 
-	setupCharacter(
-		player.Character
-	)
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateUIScale)
 end
 
-player.CharacterAdded:Connect(
-	setupCharacter
-)
+updateUIScale()
 
 --========================================================
--- SCREEN GUI
+-- FUNCIÓN PARA ESQUINAS
 --========================================================
 
-local screenGui =
-	Instance.new("ScreenGui")
-
-screenGui.Name =
-	"ControlGui"
-
-screenGui.ResetOnSpawn =
-	false
-
-screenGui.IgnoreGuiInset =
-	true
-
-screenGui.Parent =
-	player:WaitForChild(
-		"PlayerGui"
-	)
+local function addCorner(object, radius)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius)
+	corner.Parent = object
+	return corner
+end
 
 --========================================================
 -- BOTÓN S
 --========================================================
 
-local showButton =
-	Instance.new("TextButton")
+local openButton = Instance.new("TextButton")
+openButton.Name = "OpenButton"
+openButton.Size = UDim2.fromOffset(42, 42)
+openButton.Position = UDim2.new(0, 8, 0.5, -21)
+openButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+openButton.TextColor3 = Color3.new(1, 1, 1)
+openButton.Text = "S"
+openButton.TextSize = 20
+openButton.Font = Enum.Font.GothamBold
+openButton.AutoButtonColor = true
+openButton.Parent = gui
 
-showButton.Name =
-	"ShowButton"
-
-showButton.Size =
-	UDim2.new(
-		0,
-		38,
-		0,
-		38
-	)
-
-showButton.Position =
-	UDim2.new(
-		0,
-		8,
-		0.5,
-		-19
-	)
-
-showButton.BackgroundColor3 =
-	Color3.fromRGB(
-		45,
-		45,
-		45
-	)
-
-showButton.Text =
-	"S"
-
-showButton.TextColor3 =
-	Color3.fromRGB(
-		255,
-		255,
-		255
-	)
-
-showButton.TextScaled =
-	true
-
-showButton.Font =
-	Enum.Font.GothamBold
-
-showButton.BorderSizePixel =
-	0
-
-showButton.Visible =
-	true
-
-showButton.Parent =
-	screenGui
-
-local showCorner =
-	Instance.new("UICorner")
-
-showCorner.CornerRadius =
-	UDim.new(
-		0,
-		8
-	)
-
-showCorner.Parent =
-	showButton
+addCorner(openButton, 10)
 
 --========================================================
--- PANEL PRINCIPAL
+-- PANEL
 --========================================================
 
-local mainFrame =
-	Instance.new("Frame")
+local panel = Instance.new("Frame")
+panel.Name = "ControlPanel"
+panel.Size = UDim2.fromOffset(250, 245)
+panel.Position = UDim2.new(0, 58, 0.5, -122)
+panel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+panel.BorderSizePixel = 0
+panel.Visible = false
+panel.Parent = gui
 
-mainFrame.Name =
-	"MainFrame"
-
-mainFrame.Size =
-	UDim2.new(
-		0,
-		250,
-		0,
-		245
-	)
-
-mainFrame.Position =
-	UDim2.new(
-		0,
-		8,
-		0.5,
-		-122
-	)
-
-mainFrame.BackgroundColor3 =
-	Color3.fromRGB(
-		30,
-		30,
-		30
-	)
-
-mainFrame.BorderSizePixel =
-	0
-
--- OCULTO AL INICIAR
-mainFrame.Visible =
-	false
-
-mainFrame.Parent =
-	screenGui
-
-local mainCorner =
-	Instance.new("UICorner")
-
-mainCorner.CornerRadius =
-	UDim.new(
-		0,
-		10
-	)
-
-mainCorner.Parent =
-	mainFrame
+addCorner(panel, 12)
 
 --========================================================
 -- TÍTULO
 --========================================================
 
-local title =
-	Instance.new("TextLabel")
-
-title.Name =
-	"Title"
-
-title.Size =
-	UDim2.new(
-		1,
-		-45,
-		0,
-		35
-	)
-
-title.Position =
-	UDim2.new(
-		0,
-		10,
-		0,
-		2
-	)
-
-title.BackgroundTransparency =
-	1
-
-title.Text =
-	"Controles"
-
-title.TextColor3 =
-	Color3.fromRGB(
-		255,
-		255,
-		255
-	)
-
-title.TextSize =
-	20
-
-title.Font =
-	Enum.Font.GothamBold
-
-title.TextXAlignment =
-	Enum.TextXAlignment.Left
-
-title.Parent =
-	mainFrame
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -45, 0, 38)
+title.Position = UDim2.fromOffset(12, 5)
+title.BackgroundTransparency = 1
+title.Text = "Controles"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.TextSize = 19
+title.Font = Enum.Font.GothamBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = panel
 
 --========================================================
 -- BOTÓN X
 --========================================================
 
-local hideButton =
-	Instance.new("TextButton")
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.fromOffset(32, 32)
+closeButton.Position = UDim2.new(1, -38, 0, 7)
+closeButton.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+closeButton.TextColor3 = Color3.new(1, 1, 1)
+closeButton.Text = "X"
+closeButton.TextSize = 16
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Parent = panel
 
-hideButton.Name =
-	"HideButton"
+addCorner(closeButton, 8)
 
-hideButton.Size =
-	UDim2.new(
+--========================================================
+-- CREAR CONTROL DESLIZANTE
+--========================================================
+
+local function createSlider(name, y, defaultValue)
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -24, 0, 24)
+	label.Position = UDim2.fromOffset(12, y)
+	label.BackgroundTransparency = 1
+	label.Text = name .. ": " .. tostring(math.floor(defaultValue))
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextSize = 14
+	label.Font = Enum.Font.Gotham
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = panel
+
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.new(1, -24, 0, 14)
+	bar.Position = UDim2.fromOffset(12, y + 27)
+	bar.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	bar.BorderSizePixel = 0
+	bar.Parent = panel
+
+	addCorner(bar, 7)
+
+	local fill = Instance.new("Frame")
+	fill.Size = UDim2.new(
+		math.clamp(defaultValue / MAX_VALUE, 0, 1),
 		0,
-		30,
-		0,
-		30
-	)
-
-hideButton.Position =
-	UDim2.new(
 		1,
-		-35,
-		0,
-		4
+		0
 	)
+	fill.BackgroundColor3 = Color3.fromRGB(220, 220, 220)
+	fill.BorderSizePixel = 0
+	fill.Parent = bar
 
-hideButton.BackgroundColor3 =
-	Color3.fromRGB(
-		55,
-		55,
-		55
-	)
+	addCorner(fill, 7)
 
-hideButton.Text =
-	"X"
+	-- Botón invisible grande para facilitar toque en teléfono
+	local touchButton = Instance.new("TextButton")
+	touchButton.Size = UDim2.new(1, 0, 0, 32)
+	touchButton.Position = UDim2.fromOffset(0, -9)
+	touchButton.BackgroundTransparency = 1
+	touchButton.Text = ""
+	touchButton.AutoButtonColor = false
+	touchButton.Parent = bar
 
-hideButton.TextColor3 =
-	Color3.fromRGB(
-		255,
-		255,
-		255
-	)
+	local value = defaultValue
 
-hideButton.TextSize =
-	17
-
-hideButton.Font =
-	Enum.Font.GothamBold
-
-hideButton.BorderSizePixel =
-	0
-
-hideButton.Parent =
-	mainFrame
-
-local hideCorner =
-	Instance.new("UICorner")
-
-hideCorner.CornerRadius =
-	UDim.new(
-		0,
-		7
-	)
-
-hideCorner.Parent =
-	hideButton
-
---========================================================
--- FUNCIÓN PARA CREAR SLIDER
---========================================================
-
-local function createSlider(
-	parent,
-	y,
-	labelText,
-	defaultValue,
-	callback
-)
-
-	local container =
-		Instance.new("Frame")
-
-	container.Size =
-		UDim2.new(
-			1,
-			-20,
-			0,
-			47
-		)
-
-	container.Position =
-		UDim2.new(
-			0,
-			10,
-			0,
-			y
-		)
-
-	container.BackgroundTransparency =
-		1
-
-	container.Parent =
-		parent
-
-	--====================================================
-	-- LABEL
-	--====================================================
-
-	local label =
-		Instance.new("TextLabel")
-
-	label.Size =
-		UDim2.new(
-			0,
-			85,
-			0,
-			20
-		)
-
-	label.Position =
-		UDim2.new(
-			0,
-			0,
+	local function setValueFromX(x)
+		local relative = math.clamp(
+			(x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X,
 			0,
 			1
 		)
 
-	label.BackgroundTransparency =
-		1
+		value = math.floor(relative * MAX_VALUE)
 
-	label.Text =
-		labelText
+		fill.Size = UDim2.new(relative, 0, 1, 0)
+		label.Text = name .. ": " .. tostring(value)
 
-	label.TextColor3 =
-		Color3.fromRGB(
-			220,
-			220,
-			220
-		)
-
-	label.TextSize =
-		14
-
-	label.Font =
-		Enum.Font.Gotham
-
-	label.TextXAlignment =
-		Enum.TextXAlignment.Left
-
-	label.Parent =
-		container
-
-	--====================================================
-	-- CAJA DE VALOR
-	--====================================================
-
-	local valueBox =
-		Instance.new("TextBox")
-
-	valueBox.Size =
-		UDim2.new(
-			0,
-			45,
-			0,
-			22
-		)
-
-	valueBox.Position =
-		UDim2.new(
-			1,
-			-45,
-			0,
-			0
-		)
-
-	valueBox.BackgroundColor3 =
-		Color3.fromRGB(
-			50,
-			50,
-			50
-		)
-
-	valueBox.TextColor3 =
-		Color3.fromRGB(
-			255,
-			255,
-			255
-		)
-
-	valueBox.Text =
-		tostring(
-			defaultValue
-		)
-
-	valueBox.TextSize =
-		13
-
-	valueBox.Font =
-		Enum.Font.Gotham
-
-	valueBox.ClearTextOnFocus =
-		false
-
-	valueBox.BorderSizePixel =
-		0
-
-	valueBox.Parent =
-		container
-
-	local valueCorner =
-		Instance.new("UICorner")
-
-	valueCorner.CornerRadius =
-		UDim.new(
-			0,
-			5
-		)
-
-	valueCorner.Parent =
-		valueBox
-
-	--====================================================
-	-- BARRA
-	--====================================================
-
-	local sliderBar =
-		Instance.new("Frame")
-
-	sliderBar.Size =
-		UDim2.new(
-			1,
-			-95,
-			0,
-			10
-		)
-
-	sliderBar.Position =
-		UDim2.new(
-			0,
-			0,
-			0,
-			28
-		)
-
-	sliderBar.BackgroundColor3 =
-		Color3.fromRGB(
-			70,
-			70,
-			70
-		)
-
-	sliderBar.BorderSizePixel =
-		0
-
-	sliderBar.Parent =
-		container
-
-	local sliderCorner =
-		Instance.new("UICorner")
-
-	sliderCorner.CornerRadius =
-		UDim.new(
-			1,
-			0
-		)
-
-	sliderCorner.Parent =
-		sliderBar
-
-	--====================================================
-	-- FILL
-	--====================================================
-
-	local sliderFill =
-		Instance.new("Frame")
-
-	-- Visualmente comienza al 50%
-	sliderFill.Size =
-		UDim2.new(
-			0.5,
-			0,
-			1,
-			0
-		)
-
-	sliderFill.BackgroundColor3 =
-		Color3.fromRGB(
-			190,
-			190,
-			190
-		)
-
-	sliderFill.BorderSizePixel =
-		0
-
-	sliderFill.Parent =
-		sliderBar
-
-	local fillCorner =
-		Instance.new("UICorner")
-
-	fillCorner.CornerRadius =
-		UDim.new(
-			1,
-			0
-		)
-
-	fillCorner.Parent =
-		sliderFill
-
-	local dragging =
-		false
-
-	--====================================================
-	-- CAMBIAR VALOR
-	--====================================================
-
-	local function setValue(value)
-
-		value =
-			math.clamp(
-				math.floor(
-					value + 0.5
-				),
-				0,
-				MAX_VALUE
-			)
-
-		valueBox.Text =
-			tostring(
-				value
-			)
-
-		sliderFill.Size =
-			UDim2.new(
-				value / MAX_VALUE,
-				0,
-				1,
-				0
-			)
-
-		callback(
-			value
-		)
+		return value
 	end
 
-	--====================================================
-	-- ACTUALIZAR CON MOUSE
-	--====================================================
+	local dragging = false
 
-	local function updateFromMouse(x)
+	touchButton.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
 
-		local barX =
-			sliderBar.AbsolutePosition.X
+			dragging = true
+			setValueFromX(input.Position.X)
+		end
+	end)
 
-		local barWidth =
-			sliderBar.AbsoluteSize.X
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging then
+			if input.UserInputType == Enum.UserInputType.MouseMovement
+				or input.UserInputType == Enum.UserInputType.Touch then
 
-		local percentage =
-			math.clamp(
-				(
-					x - barX
-				)
-				/
-				barWidth,
-				0,
-				1
-			)
+				setValueFromX(input.Position.X)
+			end
+		end
+	end)
 
-		setValue(
-			percentage
-				* MAX_VALUE
-		)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+
+			dragging = false
+		end
+	end)
+
+	return function()
+		return value
 	end
-
-	--====================================================
-	-- INICIAR DRAG
-	--====================================================
-
-	sliderBar.InputBegan:Connect(
-		function(input)
-
-			if input.UserInputType ==
-				Enum.UserInputType.MouseButton1
-
-				or
-
-				input.UserInputType ==
-				Enum.UserInputType.Touch then
-
-				dragging =
-					true
-
-				updateFromMouse(
-					input.Position.X
-				)
-			end
-		end
-	)
-
-	--====================================================
-	-- DRAG
-	--====================================================
-
-	UserInputService.InputChanged:Connect(
-		function(input)
-
-			if not dragging then
-				return
-			end
-
-			if input.UserInputType ==
-				Enum.UserInputType.MouseMovement
-
-				or
-
-				input.UserInputType ==
-				Enum.UserInputType.Touch then
-
-				updateFromMouse(
-					input.Position.X
-				)
-			end
-		end
-	)
-
-	--====================================================
-	-- SOLTAR
-	--====================================================
-
-	UserInputService.InputEnded:Connect(
-		function(input)
-
-			if input.UserInputType ==
-				Enum.UserInputType.MouseButton1
-
-				or
-
-				input.UserInputType ==
-				Enum.UserInputType.Touch then
-
-				dragging =
-					false
-			end
-		end
-	)
-
-	--====================================================
-	-- ESCRIBIR VALOR
-	--====================================================
-
-	valueBox.FocusLost:Connect(
-		function()
-
-			local value =
-				tonumber(
-					valueBox.Text
-				)
-
-			if value then
-
-				setValue(
-					value
-				)
-
-			else
-
-				valueBox.Text =
-					tostring(
-						defaultValue
-					)
-			end
-		end
-	)
 end
 
---========================================================
--- SLIDER VELOCIDAD
---========================================================
-
-createSlider(
-	mainFrame,
-	38,
-	"Velocidad",
-	currentSpeed,
-	function(value)
-
-		currentSpeed =
-			value
-
-		if humanoid
-			and not autoBatEnabled then
-
-			humanoid.WalkSpeed =
-				value
-		end
-	end
-)
+local getSpeed = createSlider("Velocidad", 48, currentSpeed)
+local getGravity = createSlider("Gravedad", 102, 30)
+local getJump = createSlider("Salto", 156, currentJump)
 
 --========================================================
--- SLIDER GRAVEDAD
+-- ACTUALIZAR VALORES
 --========================================================
 
-createSlider(
-	mainFrame,
-	85,
-	"Gravedad",
-	currentGravity,
-	function(value)
+task.spawn(function()
+	while gui.Parent do
 
-		currentGravity =
-			value
+		currentSpeed = getSpeed()
+		currentGravity = getGravity()
+		currentJump = getJump()
 
-		Workspace.Gravity =
-			value
-	end
-)
+		local character = player.Character
 
---========================================================
--- SLIDER SALTO
---========================================================
+		if character then
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
 
-createSlider(
-	mainFrame,
-	132,
-	"Salto",
-	currentJump,
-	function(value)
+			if humanoid then
 
-		currentJump =
-			value
+				if not autoBatEnabled then
+					humanoid.WalkSpeed = currentSpeed
+				else
+					humanoid.WalkSpeed = AUTO_BAT_SPEED
+				end
 
-		if humanoid then
-
-			humanoid.UseJumpPower =
-				true
-
-			humanoid.JumpPower =
-				value
-		end
-	end
-)
-
---========================================================
--- BOOST
---========================================================
-
-local boostButton =
-	Instance.new("TextButton")
-
-boostButton.Name =
-	"Boost"
-
-boostButton.Size =
-	UDim2.new(
-		0,
-		105,
-		0,
-		33
-	)
-
-boostButton.Position =
-	UDim2.new(
-		0,
-		10,
-		1,
-		-43
-	)
-
-boostButton.BackgroundColor3 =
-	Color3.fromRGB(
-		45,
-		45,
-		45
-	)
-
-boostButton.Text =
-	"BOOST"
-
-boostButton.TextColor3 =
-	Color3.fromRGB(
-		255,
-		255,
-		255
-	)
-
-boostButton.TextSize =
-	14
-
-boostButton.Font =
-	Enum.Font.GothamBold
-
-boostButton.BorderSizePixel =
-	0
-
-boostButton.Parent =
-	mainFrame
-
-local boostCorner =
-	Instance.new("UICorner")
-
-boostCorner.CornerRadius =
-	UDim.new(
-		0,
-		7
-	)
-
-boostCorner.Parent =
-	boostButton
-
---========================================================
--- MOSTRAR / OCULTAR
---========================================================
-
-hideButton.MouseButton1Click:Connect(
-	function()
-
-		mainFrame.Visible =
-			false
-
-		showButton.Visible =
-			true
-	end
-)
-
-showButton.MouseButton1Click:Connect(
-	function()
-
-		mainFrame.Visible =
-			true
-
-		showButton.Visible =
-			false
-	end
-)
-
---========================================================
--- BOOST
---========================================================
-
-local originalGlobalShadows =
-	Lighting.GlobalShadows
-
-local originalDiffuse =
-	Lighting.EnvironmentDiffuseScale
-
-local originalSpecular =
-	Lighting.EnvironmentSpecularScale
-
-local function applyBoost()
-
-	for _, object in ipairs(
-		Workspace:GetDescendants()
-	) do
-
-		if object:IsA(
-			"BasePart"
-		) then
-
-			object.Material =
-				Enum.Material.SmoothPlastic
-
-			object.CastShadow =
-				false
-
-			object.Reflectance =
-				0
+				humanoid.JumpPower = currentJump
+			end
 		end
 
-		if object:IsA(
-			"PointLight"
-		)
-		or object:IsA(
-			"SpotLight"
-		)
-		or object:IsA(
-			"SurfaceLight"
-		) then
+		workspace.Gravity = currentGravity
 
-			object.Enabled =
-				false
-		end
+		task.wait(0.1)
 	end
+end)
 
-	Lighting.GlobalShadows =
-		false
+--========================================================
+-- ABRIR / CERRAR PANEL
+--========================================================
 
-	Lighting.EnvironmentDiffuseScale =
-		0
+openButton.Activated:Connect(function()
+	panel.Visible = true
+	openButton.Visible = false
+end)
 
-	Lighting.EnvironmentSpecularScale =
-		0
-end
-
-boostButton.MouseButton1Click:Connect(
-	function()
-
-		boostEnabled =
-			not boostEnabled
-
-		if boostEnabled then
-
-			applyBoost()
-
-			boostButton.BackgroundColor3 =
-				Color3.fromRGB(
-					75,
-					75,
-					75
-				)
-
-			boostButton.Text =
-				"BOOST ON"
-
-		else
-
-			Lighting.GlobalShadows =
-				originalGlobalShadows
-
-			Lighting.EnvironmentDiffuseScale =
-				originalDiffuse
-
-			Lighting.EnvironmentSpecularScale =
-				originalSpecular
-
-			boostButton.BackgroundColor3 =
-				Color3.fromRGB(
-					45,
-					45,
-					45
-				)
-
-			boostButton.Text =
-				"BOOST"
-		end
-	end
-)
+closeButton.Activated:Connect(function()
+	panel.Visible = false
+	openButton.Visible = true
+end)
 
 --========================================================
 -- BOTONES INDEPENDIENTES
 --========================================================
 
-local function createIndependentButton(
-	name,
-	text
-)
+local independentButtons = Instance.new("Frame")
+independentButtons.Name = "IndependentButtons"
+independentButtons.Size = UDim2.fromOffset(58, 174)
+independentButtons.Position = UDim2.new(1, -68, 0.5, -87)
+independentButtons.BackgroundTransparency = 1
+independentButtons.Parent = gui
 
-	local button =
-		Instance.new("TextButton")
+local buttonLayout = Instance.new("UIListLayout")
+buttonLayout.FillDirection = Enum.FillDirection.Vertical
+buttonLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+buttonLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+buttonLayout.Padding = UDim.new(0, 9)
+buttonLayout.Parent = independentButtons
 
-	button.Name =
-		name
+local function createIndependentButton(text)
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.fromOffset(52, 52)
+	button.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.Text = text
+	button.TextSize = 12
+	button.Font = Enum.Font.GothamBold
+	button.AutoButtonColor = true
+	button.Parent = independentButtons
 
-	button.Size =
-		UDim2.new(
-			0,
-			52,
-			0,
-			52
-		)
-
-	button.AnchorPoint =
-		Vector2.new(
-			1,
-			0.5
-		)
-
-	button.BackgroundColor3 =
-		Color3.fromRGB(
-			45,
-			45,
-			45
-		)
-
-	button.Text =
-		text
-
-	button.TextColor3 =
-		Color3.fromRGB(
-			255,
-			255,
-			255
-		)
-
-	button.TextSize =
-		11
-
-	button.Font =
-		Enum.Font.GothamBold
-
-	button.BorderSizePixel =
-		0
-
-	button.Parent =
-		screenGui
-
-	local corner =
-		Instance.new("UICorner")
-
-	corner.CornerRadius =
-		UDim.new(
-			0,
-			11
-		)
-
-	corner.Parent =
-		button
+	addCorner(button, 10)
 
 	return button
 end
 
-local dropButton =
-	createIndependentButton(
-		"DROP",
-		"DROP"
-	)
-
-local tpButton =
-	createIndependentButton(
-		"TP",
-		"TP"
-	)
-
-local autoBatButton =
-	createIndependentButton(
-		"AutoBat",
-		"AUTO\nBAT"
-	)
-
---========================================================
--- POSICIONES DE BOTONES
---========================================================
-
-local BUTTON_X =
-	-12
-
-dropButton.Position =
-	UDim2.new(
-		1,
-		BUTTON_X,
-		0.5,
-		-70
-	)
-
-tpButton.Position =
-	UDim2.new(
-		1,
-		BUTTON_X,
-		0.5,
-		0
-	)
-
-autoBatButton.Position =
-	UDim2.new(
-		1,
-		BUTTON_X,
-		0.5,
-		70
-	)
+local dropButton = createIndependentButton("DROP")
+local tpButton = createIndependentButton("TP")
+local autoBatButton = createIndependentButton("AUTO\nBAT")
 
 --========================================================
 -- DROP
 --========================================================
 
-dropButton.MouseButton1Click:Connect(
-	function()
+dropButton.Activated:Connect(function()
 
-		if not character then
-			return
-		end
+	local character = player.Character
 
-		for _, object in ipairs(
-			Workspace:GetDescendants()
-		) do
+	if not character then
+		return
+	end
 
-			if object:IsA(
-				"WeldConstraint"
-			)
-			and object.Name ==
-				"CarryWeld" then
+	for _, obj in ipairs(workspace:GetDescendants()) do
 
-				local part0 =
-					object.Part0
+		if obj:IsA("WeldConstraint")
+			and obj.Name == "CarryWeld" then
 
-				local part1 =
-					object.Part1
+			local part0 = obj.Part0
+			local part1 = obj.Part1
 
-				local connectedToCharacter =
-					(
-						part0
-						and part0:IsDescendantOf(
-							character
-						)
-					)
-					or
-					(
-						part1
-						and part1:IsDescendantOf(
-							character
-						)
-					)
+			if part0 and part1 then
 
-				if connectedToCharacter then
+				if part0:IsDescendantOf(character)
+					or part1:IsDescendantOf(character) then
 
-					local box =
-						nil
+					local box
 
-					if part0
-						and not part0:IsDescendantOf(
-							character
-						) then
-
-						box =
-							part0
-
-					elseif part1
-						and not part1:IsDescendantOf(
-							character
-						) then
-
-						box =
-							part1
+					if part0:IsDescendantOf(character) then
+						box = part1
+					else
+						box = part0
 					end
 
-					object:Destroy()
+					obj:Destroy()
 
-					if box
-						and box:IsA(
-							"BasePart"
-						) then
-
-						box.Anchored =
-							false
-
-						box.CanCollide =
-							true
+					if box and box:IsA("BasePart") then
+						box.Anchored = false
+						box.CanCollide = true
 					end
+
+					break
 				end
 			end
 		end
 	end
-)
+end)
 
 --========================================================
 -- TP
 --========================================================
 
-tpButton.MouseButton1Click:Connect(
-	function()
+tpButton.Activated:Connect(function()
 
-		if not rootPart then
-			return
-		end
+	local character = player.Character
 
-		local currentPosition =
-			rootPart.Position
-
-		rootPart.CFrame =
-			CFrame.new(
-				currentPosition.X,
-				TP_Y,
-				currentPosition.Z
-			)
-	end
-)
-
---========================================================
--- BUSCAR HUMANOID MÁS CERCANO
---========================================================
-
-local function getNearestHumanoid()
-
-	if not rootPart then
-
-		return nil,
-			math.huge
-	end
-
-	local nearestHumanoid =
-		nil
-
-	local nearestDistance =
-		math.huge
-
-	for _, object in ipairs(
-		Workspace:GetDescendants()
-	) do
-
-		if object:IsA(
-			"Humanoid"
-		)
-		and object ~= humanoid
-		and object.Health > 0 then
-
-			local model =
-				object.Parent
-
-			if model
-				and model:IsA(
-					"Model"
-				) then
-
-				local targetRoot =
-					model:FindFirstChild(
-						"HumanoidRootPart"
-					)
-					or
-					model:FindFirstChild(
-						"UpperTorso"
-					)
-					or
-					model:FindFirstChild(
-						"Torso"
-					)
-
-				if targetRoot
-					and targetRoot:IsA(
-						"BasePart"
-					) then
-
-					local distance =
-						(
-							rootPart.Position
-							-
-							targetRoot.Position
-						).Magnitude
-
-					if distance <
-						nearestDistance then
-
-						nearestDistance =
-							distance
-
-						nearestHumanoid =
-							object
-					end
-				end
-			end
-		end
-	end
-
-	return nearestHumanoid,
-		nearestDistance
-end
-
---========================================================
--- MIRAR AL OBJETIVO
---========================================================
-
-local function lookAtTarget(
-	targetRoot
-)
-
-	if not rootPart
-		or not targetRoot then
-
+	if not character then
 		return
 	end
 
-	local currentPosition =
-		rootPart.Position
+	local root =
+		character:FindFirstChild("HumanoidRootPart")
 
-	-- Mirar horizontalmente.
-	-- No inclina el personaje.
-	local lookPosition =
-		Vector3.new(
-			targetRoot.Position.X,
-			currentPosition.Y,
-			targetRoot.Position.Z
+	if root then
+
+		root.CFrame = CFrame.new(
+			root.Position.X,
+			-7.2,
+			root.Position.Z
 		)
 
-	local direction =
-		lookPosition
-		-
-		currentPosition
+	end
+end)
 
-	if direction.Magnitude <=
-		0.001 then
+--========================================================
+-- BOOST
+--========================================================
 
-		return
+local function applyBoost()
+	for _, obj in ipairs(workspace:GetDescendants()) do
+
+		if obj:IsA("BasePart") then
+			obj.Material = Enum.Material.SmoothPlastic
+			obj.CastShadow = false
+			obj.Reflectance = 0
+
+		elseif obj:IsA("PointLight")
+			or obj:IsA("SpotLight")
+			or obj:IsA("SurfaceLight") then
+
+			obj.Enabled = false
+		end
 	end
 
-	rootPart.CFrame =
-		CFrame.lookAt(
-			currentPosition,
-			lookPosition
-		)
-end
-	
---========================================================
--- BUSCAR BATE
---========================================================
-
-local function findBat()
-    local character = player.Character
-    if not character then
-        return nil
-    end
-
-    -- Buscar primero en el personaje
-    for _, obj in ipairs(character:GetChildren()) do
-        if obj:IsA("Tool") and string.find(string.lower(obj.Name), "bat") then
-            return obj
-        end
-    end
-
-    -- Buscar en la mochila
-    local backpack = player:FindFirstChildOfClass("Backpack")
-
-    if backpack then
-        for _, obj in ipairs(backpack:GetChildren()) do
-            if obj:IsA("Tool") and string.find(string.lower(obj.Name), "bat") then
-                return obj
-            end
-        end
-    end
-
-    return nil
+	Lighting.GlobalShadows = false
+	Lighting.EnvironmentDiffuseScale = 0
+	Lighting.EnvironmentSpecularScale = 0
 end
 
-
 --========================================================
--- USAR BATE
---========================================================
-
-local function useBat()
-    local character = player.Character
-    if not character then
-        return
-    end
-
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then
-        return
-    end
-
-    local bat = findBat()
-
-    if not bat then
-        return
-    end
-
-    -- Equipar si está en la mochila
-    if bat.Parent ~= character then
-        humanoid:EquipTool(bat)
-        task.wait(0.05)
-    end
-
-    -- Activar el bate
-    if bat.Parent == character then
-        pcall(function()
-            bat:Activate()
-        end)
-    end
-end
-
-
---========================================================
--- BUSCAR JUGADOR MÁS CERCANO
+-- BOTÓN BOOST
 --========================================================
 
-local function getNearestTarget()
-    local character = player.Character
-    if not character then
-        return nil
-    end
+local boostButton = createIndependentButton("BOOST")
 
-    local root = character:FindFirstChild("HumanoidRootPart")
-    if not root then
-        return nil
-    end
+boostButton.Activated:Connect(function()
 
-    local nearestTarget = nil
-    local nearestDistance = math.huge
+	boostEnabled = not boostEnabled
 
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Humanoid") and obj.Health > 0 then
+	if boostEnabled then
 
-            local targetCharacter = obj.Parent
+		boostButton.BackgroundColor3 =
+			Color3.fromRGB(75, 75, 75)
 
-            if targetCharacter
-                and targetCharacter:IsA("Model")
-                and targetCharacter ~= character then
+		applyBoost()
 
-                local targetRoot =
-                    targetCharacter:FindFirstChild("HumanoidRootPart")
+	else
 
-                if targetRoot then
+		boostButton.BackgroundColor3 =
+			Color3.fromRGB(45, 45, 45)
 
-                    local distance =
-                        (root.Position - targetRoot.Position).Magnitude
-
-                    if distance < nearestDistance then
-                        nearestDistance = distance
-                        nearestTarget = targetCharacter
-                    end
-                end
-            end
-        end
-    end
-
-    return nearestTarget
-end
-
+	end
+end)
 
 --========================================================
 -- AUTO BAT
@@ -1561,105 +493,245 @@ end
 
 local autoBatRunning = false
 
-local function startAutoBat()
+local function findBat()
 
-    if autoBatRunning then
-        return
-    end
+	local character = player.Character
 
-    autoBatRunning = true
+	if not character then
+		return nil
+	end
 
-    task.spawn(function()
+	-- Buscar en personaje
+	for _, obj in ipairs(character:GetChildren()) do
 
-        while autoBatRunning do
+		if obj:IsA("Tool")
+			and string.find(string.lower(obj.Name), "bat") then
 
-            local character = player.Character
+			return obj
+		end
+	end
 
-            if not character then
-                task.wait()
-                continue
-            end
+	-- Buscar en mochila
+	local backpack =
+		player:FindFirstChildOfClass("Backpack")
 
-            local humanoid =
-                character:FindFirstChildOfClass("Humanoid")
+	if backpack then
 
-            local root =
-                character:FindFirstChild("HumanoidRootPart")
+		for _, obj in ipairs(backpack:GetChildren()) do
 
-            if not humanoid or not root then
-                task.wait()
-                continue
-            end
+			if obj:IsA("Tool")
+				and string.find(string.lower(obj.Name), "bat") then
 
-            local target = getNearestTarget()
+				return obj
+			end
+		end
+	end
 
-            if target then
-
-                local targetRoot =
-                    target:FindFirstChild("HumanoidRootPart")
-
-                local targetHumanoid =
-                    target:FindFirstChildOfClass("Humanoid")
-
-                if targetRoot
-                    and targetHumanoid
-                    and targetHumanoid.Health > 0 then
-
-                    --================================================
-                    -- MIRAR AL OBJETIVO
-                    --================================================
-
-                    local targetPosition = targetRoot.Position
-
-                    local lookPosition = Vector3.new(
-                        targetPosition.X,
-                        root.Position.Y,
-                        targetPosition.Z
-                    )
-
-                    root.CFrame =
-                        CFrame.lookAt(
-                            root.Position,
-                            lookPosition
-                        )
-
-
-                    --================================================
-                    -- MOVERSE HACIA EL OBJETIVO
-                    --================================================
-
-                    humanoid:MoveTo(targetPosition)
-
-
-                    --================================================
-                    -- DISTANCIA PARA USAR EL BATE
-                    --================================================
-
-                    local distance =
-                        (root.Position - targetRoot.Position).Magnitude
-
-                    if distance <= AUTO_BAT_DISTANCE then
-
-                        useBat()
-
-                        task.wait(PROXIMITY_DELAY)
-
-                    else
-
-                        task.wait()
-
-                    end
-                else
-                    task.wait()
-                end
-
-            else
-                task.wait()
-            end
-        end
-    end)
+	return nil
 end
 
+--========================================================
+-- AUTO BAT - USAR BATE
+-- PARTE 2/2
+--========================================================
+
+local function useBat()
+
+	local character = player.Character
+
+	if not character then
+		return
+	end
+
+	local humanoid =
+		character:FindFirstChildOfClass("Humanoid")
+
+	if not humanoid then
+		return
+	end
+
+	local bat = findBat()
+
+	if not bat then
+		return
+	end
+
+	if bat.Parent ~= character then
+
+		humanoid:EquipTool(bat)
+
+		task.wait(0.05)
+	end
+
+	if bat.Parent == character then
+
+		pcall(function()
+			bat:Activate()
+		end)
+
+	end
+end
+
+--========================================================
+-- BUSCAR OBJETIVO
+--========================================================
+
+local function getNearestTarget()
+
+	local character = player.Character
+
+	if not character then
+		return nil
+	end
+
+	local root =
+		character:FindFirstChild("HumanoidRootPart")
+
+	if not root then
+		return nil
+	end
+
+	local nearestTarget = nil
+	local nearestDistance = math.huge
+
+	for _, obj in ipairs(workspace:GetDescendants()) do
+
+		if obj:IsA("Humanoid")
+			and obj.Health > 0 then
+
+			local targetCharacter = obj.Parent
+
+			if targetCharacter
+				and targetCharacter:IsA("Model")
+				and targetCharacter ~= character then
+
+				local targetRoot =
+					targetCharacter:FindFirstChild(
+						"HumanoidRootPart"
+					)
+
+				if targetRoot then
+
+					local distance =
+						(root.Position - targetRoot.Position).Magnitude
+
+					if distance < nearestDistance then
+
+						nearestDistance = distance
+						nearestTarget = targetCharacter
+
+					end
+				end
+			end
+		end
+	end
+
+	return nearestTarget
+end
+
+--========================================================
+-- INICIAR AUTO BAT
+--========================================================
+
+local function startAutoBat()
+
+	if autoBatRunning then
+		return
+	end
+
+	autoBatRunning = true
+
+	task.spawn(function()
+
+		while autoBatRunning do
+
+			local character = player.Character
+
+			if not character then
+				task.wait()
+				continue
+			end
+
+			local humanoid =
+				character:FindFirstChildOfClass("Humanoid")
+
+			local root =
+				character:FindFirstChild("HumanoidRootPart")
+
+			if not humanoid or not root then
+				task.wait()
+				continue
+			end
+
+			local target = getNearestTarget()
+
+			if target then
+
+				local targetRoot =
+					target:FindFirstChild(
+						"HumanoidRootPart"
+					)
+
+				local targetHumanoid =
+					target:FindFirstChildOfClass(
+						"Humanoid"
+					)
+
+				if targetRoot
+					and targetHumanoid
+					and targetHumanoid.Health > 0 then
+
+					-- Mirar al objetivo
+					local targetPosition =
+						targetRoot.Position
+
+					local lookPosition =
+						Vector3.new(
+							targetPosition.X,
+							root.Position.Y,
+							targetPosition.Z
+						)
+
+					root.CFrame =
+						CFrame.lookAt(
+							root.Position,
+							lookPosition
+						)
+
+					-- Avanzar hacia él
+					humanoid.WalkSpeed =
+						AUTO_BAT_SPEED
+
+					humanoid:MoveTo(targetPosition)
+
+					-- Usar bate cuando está cerca
+					local distance =
+						(root.Position - targetRoot.Position).Magnitude
+
+					if distance <= AUTO_BAT_DISTANCE then
+
+						useBat()
+
+						task.wait(
+							PROXIMITY_DELAY
+						)
+
+					else
+
+						task.wait()
+
+					end
+
+				else
+					task.wait()
+				end
+
+			else
+				task.wait()
+			end
+		end
+	end)
+end
 
 --========================================================
 -- DETENER AUTO BAT
@@ -1667,155 +739,674 @@ end
 
 local function stopAutoBat()
 
-    autoBatRunning = false
+	autoBatRunning = false
 
-    local character = player.Character
+	local character = player.Character
 
-    if not character then
-        return
-    end
+	if not character then
+		return
+	end
 
-    local humanoid =
-        character:FindFirstChildOfClass("Humanoid")
+	local humanoid =
+		character:FindFirstChildOfClass("Humanoid")
 
-    if humanoid then
+	if humanoid then
 
-        humanoid.AutoRotate = true
+		humanoid.AutoRotate = true
+		humanoid.WalkSpeed = currentSpeed
 
-        -- Restaurar velocidad seleccionada
-        humanoid.WalkSpeed = currentSpeed
+		pcall(function()
 
-        -- Volver a permitir escalar
-        pcall(function()
-            humanoid:SetStateEnabled(
-                Enum.HumanoidStateType.Climbing,
-                true
-            )
-        end)
-    end
+			humanoid:SetStateEnabled(
+				Enum.HumanoidStateType.Climbing,
+				true
+			)
+
+		end)
+	end
 end
-
 
 --========================================================
 -- BOTÓN AUTO BAT
 --========================================================
 
-autoBatButton.MouseButton1Click:Connect(function()
+autoBatButton.Activated:Connect(function()
 
-    autoBatEnabled = not autoBatEnabled
+	autoBatEnabled = not autoBatEnabled
 
-    if autoBatEnabled then
+	if autoBatEnabled then
 
-        autoBatButton.Text = "AUTO\nON"
+		autoBatButton.Text = "AUTO\nON"
 
-        autoBatButton.BackgroundColor3 =
-            Color3.fromRGB(75, 75, 75)
+		autoBatButton.BackgroundColor3 =
+			Color3.fromRGB(75, 75, 75)
 
-        local character = player.Character
+		local character = player.Character
 
-        if character then
+		if character then
 
-            local humanoid =
-                character:FindFirstChildOfClass("Humanoid")
+			local humanoid =
+				character:FindFirstChildOfClass(
+					"Humanoid"
+				)
 
-            if humanoid then
+			if humanoid then
 
-                humanoid.AutoRotate = false
+				humanoid.AutoRotate = false
+				humanoid.WalkSpeed =
+					AUTO_BAT_SPEED
 
-                humanoid.WalkSpeed = AUTO_BAT_SPEED
+				pcall(function()
 
-                -- Impedir que trepe a otros personajes
-                pcall(function()
-                    humanoid:SetStateEnabled(
-                        Enum.HumanoidStateType.Climbing,
-                        false
-                    )
-                end)
-            end
-        end
+					humanoid:SetStateEnabled(
+						Enum.HumanoidStateType.Climbing,
+						false
+					)
 
-        startAutoBat()
+				end)
+			end
+		end
 
-    else
+		startAutoBat()
 
-        autoBatButton.Text = "AUTO\nBAT"
+	else
 
-        autoBatButton.BackgroundColor3 =
-            Color3.fromRGB(45, 45, 45)
+		autoBatButton.Text = "AUTO\nBAT"
 
-        stopAutoBat()
-    end
+		autoBatButton.BackgroundColor3 =
+			Color3.fromRGB(45, 45, 45)
+
+		stopAutoBat()
+	end
 end)
 
-
 --========================================================
--- AL REAPARECER
+-- REAPARECER
 --========================================================
 
 player.CharacterAdded:Connect(function(character)
 
-    task.wait(0.5)
+	task.wait(0.5)
 
-    local humanoid =
-        character:WaitForChild("Humanoid", 5)
+	local humanoid =
+		character:WaitForChild(
+			"Humanoid",
+			5
+		)
 
-    if not humanoid then
-        return
-    end
+	if not humanoid then
+		return
+	end
 
-    humanoid.JumpPower = currentJump
+	humanoid.JumpPower = currentJump
 
-    if autoBatEnabled then
+	if autoBatEnabled then
 
-        humanoid.AutoRotate = false
-        humanoid.WalkSpeed = AUTO_BAT_SPEED
+		humanoid.AutoRotate = false
+		humanoid.WalkSpeed =
+			AUTO_BAT_SPEED
 
-        pcall(function()
-            humanoid:SetStateEnabled(
-                Enum.HumanoidStateType.Climbing,
-                false
-            )
-        end)
+		pcall(function()
 
-    else
+			humanoid:SetStateEnabled(
+				Enum.HumanoidStateType.Climbing,
+				false
+			)
 
-        humanoid.WalkSpeed = currentSpeed
-    end
+		end)
+
+	else
+
+		humanoid.WalkSpeed =
+			currentSpeed
+	end
 end)
 
+--========================================================
+-- FAST PROXIMITY PROMPTS
+--========================================================
+
+local preparedPrompts = {}
+local promptCooldowns = {}
+
+local function isPlayerCharacterPrompt(prompt)
+
+	local character = player.Character
+
+	if not character then
+		return false
+	end
+
+	return prompt:IsDescendantOf(character)
+end
+
+local function preparePrompt(prompt)
+
+	if not FAST_PROMPTS_ENABLED then
+		return
+	end
+
+	if not prompt:IsDescendantOf(workspace) then
+		return
+	end
+
+	if isPlayerCharacterPrompt(prompt) then
+		return
+	end
+
+	if preparedPrompts[prompt] then
+		return
+	end
+
+	preparedPrompts[prompt] = true
+
+	task.spawn(function()
+
+		local startTime = os.clock()
+
+		while preparedPrompts[prompt]
+			and prompt.Parent
+			and FAST_PROMPTS_ENABLED do
+
+			local character = player.Character
+
+			if not character then
+				task.wait()
+				continue
+			end
+
+			local root =
+				character:FindFirstChild(
+					"HumanoidRootPart"
+				)
+
+			if not root then
+				task.wait()
+				continue
+			end
+
+			local part = prompt.Parent
+
+			if not part:IsA("BasePart") then
+				preparedPrompts[prompt] = nil
+				break
+			end
+
+			local distance =
+				(root.Position - part.Position).Magnitude
+
+			if distance <= FAST_PRELOAD_DISTANCE then
+
+				local progress =
+					math.clamp(
+						(os.clock() - startTime)
+							/ FAST_PREP_TIME,
+						0,
+						1
+					)
+
+				-- Preparación simulada del cliente
+				if progress >= 1 then
+					break
+				end
+
+			else
+
+				-- Si se aleja, reiniciar preparación
+				startTime = os.clock()
+
+			end
+
+			task.wait()
+		end
+	end)
+end
+
+-- Detectar prompts nuevos
+workspace.DescendantAdded:Connect(function(obj)
+
+	if obj:IsA("ProximityPrompt") then
+		preparePrompt(obj)
+	end
+end)
+
+-- Detectar prompts que ya existen
+for _, obj in ipairs(workspace:GetDescendants()) do
+
+	if obj:IsA("ProximityPrompt") then
+		preparePrompt(obj)
+	end
+end
 
 --========================================================
--- MANTENER VALORES
+-- ACTIVACIÓN RÁPIDA DE PROMPTS
+--========================================================
+
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt)
+
+	if not FAST_PROMPTS_ENABLED then
+		return
+	end
+
+	if isPlayerCharacterPrompt(prompt) then
+		return
+	end
+
+	if promptCooldowns[prompt] then
+		return
+	end
+
+	local character = player.Character
+
+	if not character then
+		return
+	end
+
+	local root =
+		character:FindFirstChild("HumanoidRootPart")
+
+	if not root then
+		return
+	end
+
+	local parent = prompt.Parent
+
+	if not parent:IsA("BasePart") then
+		return
+	end
+
+	local distance =
+		(root.Position - parent.Position).Magnitude
+
+	if distance <= FAST_PRELOAD_DISTANCE then
+
+		promptCooldowns[prompt] = true
+
+		task.spawn(function()
+
+			local originalDuration =
+				prompt.HoldDuration
+
+			prompt.HoldDuration =
+				FAST_FINAL_HOLD
+
+			pcall(function()
+				prompt:InputHoldBegin()
+			end)
+
+			task.wait(FAST_FINAL_HOLD)
+
+			pcall(function()
+				prompt:InputHoldEnd()
+			end)
+
+			prompt.HoldDuration =
+				FAST_FINAL_HOLD
+
+			task.wait(FAST_PROMPT_COOLDOWN)
+
+			promptCooldowns[prompt] = nil
+		end)
+	end
+end)
+
+--========================================================
+-- INDICADOR SUPERIOR DE PREPARACIÓN
+--========================================================
+
+local fastFrame = Instance.new("Frame")
+fastFrame.Name = "FastPromptUI"
+fastFrame.Size = UDim2.fromOffset(190, 28)
+fastFrame.Position = UDim2.new(0.5, -95, 0, 8)
+fastFrame.BackgroundColor3 =
+	Color3.fromRGB(45, 45, 45)
+fastFrame.BorderSizePixel = 0
+fastFrame.Parent = gui
+
+addCorner(fastFrame, 8)
+
+local fastFill = Instance.new("Frame")
+fastFill.Size = UDim2.new(0, 0, 1, 0)
+fastFill.BackgroundColor3 =
+	Color3.fromRGB(230, 230, 230)
+fastFill.BorderSizePixel = 0
+fastFill.Parent = fastFrame
+
+addCorner(fastFill, 8)
+
+local fastText = Instance.new("TextLabel")
+fastText.Size = UDim2.new(1, 0, 1, 0)
+fastText.BackgroundTransparency = 1
+fastText.Text = "0%"
+fastText.TextColor3 = Color3.new(1, 1, 1)
+fastText.TextSize = 13
+fastText.Font = Enum.Font.GothamBold
+fastText.Parent = fastFrame
+
+--========================================================
+-- BOTÓN DE DISTANCIA
+--========================================================
+
+local rangeButton = Instance.new("TextButton")
+rangeButton.Size = UDim2.fromOffset(38, 28)
+rangeButton.Position = UDim2.new(1, 5, 0, 0)
+rangeButton.BackgroundColor3 =
+	Color3.fromRGB(45, 45, 45)
+rangeButton.TextColor3 =
+	Color3.new(1, 1, 1)
+rangeButton.Text = tostring(
+	FAST_PRELOAD_DISTANCE
+)
+rangeButton.TextSize = 12
+rangeButton.Font = Enum.Font.GothamBold
+rangeButton.Parent = fastFrame
+
+addCorner(rangeButton, 8)
+
+local rangeIndex = 2
+
+rangeButton.Activated:Connect(function()
+
+	rangeIndex += 1
+
+	if rangeIndex > #PRELOAD_OPTIONS then
+		rangeIndex = 1
+	end
+
+	FAST_PRELOAD_DISTANCE =
+		PRELOAD_OPTIONS[rangeIndex]
+
+	rangeButton.Text =
+		tostring(FAST_PRELOAD_DISTANCE)
+end)
+
+--========================================================
+-- CÍRCULO DE RANGO
+--========================================================
+
+local ringFolder = Instance.new("Folder")
+ringFolder.Name = "FastPromptRing"
+ringFolder.Parent = workspace
+
+local ringParts = {}
+
+local RING_SEGMENTS = 72
+
+for i = 1, RING_SEGMENTS do
+
+	local part = Instance.new("Part")
+	part.Name = "RingSegment"
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Transparency = 1
+	part.Size = Vector3.new(0.05, 0.05, 0.05)
+	part.Parent = ringFolder
+
+	local attachment0 = Instance.new("Attachment")
+	attachment0.Parent = part
+
+	local attachment1 = Instance.new("Attachment")
+	attachment1.Parent = part
+
+	local beam = Instance.new("Beam")
+	beam.Attachment0 = attachment0
+	beam.Attachment1 = attachment1
+	beam.FaceCamera = true
+	beam.Width0 = 0.06
+	beam.Width1 = 0.06
+	beam.Transparency =
+		NumberSequence.new(0.45)
+	beam.Color =
+		ColorSequence.new(Color3.new(0, 0, 0))
+	beam.Parent = part
+
+	table.insert(ringParts, {
+		part = part,
+		a0 = attachment0,
+		a1 = attachment1,
+		beam = beam
+	})
+end
+
+--========================================================
+-- ACTUALIZAR CÍRCULO
+--========================================================
+
+RunService.RenderStepped:Connect(function()
+
+	local character = player.Character
+
+	if not character then
+		return
+	end
+
+	local root =
+		character:FindFirstChild(
+			"HumanoidRootPart"
+		)
+
+	if not root then
+		return
+	end
+
+	local bottomY =
+		root.Position.Y - 3
+
+	local radius =
+		FAST_PRELOAD_DISTANCE
+
+	for i, data in ipairs(ringParts) do
+
+		local a1 =
+			((i - 1) / RING_SEGMENTS)
+			* math.pi * 2
+
+		local a2 =
+			(i / RING_SEGMENTS)
+			* math.pi * 2
+
+		local p1 = Vector3.new(
+			root.Position.X
+				+ math.cos(a1) * radius,
+			bottomY + 0.15,
+			root.Position.Z
+				+ math.sin(a1) * radius
+		)
+
+		local p2 = Vector3.new(
+			root.Position.X
+				+ math.cos(a2) * radius,
+			bottomY + 0.15,
+			root.Position.Z
+				+ math.sin(a2) * radius
+		)
+
+		data.part.Position = p1
+
+		data.a0.WorldPosition = p1
+		data.a1.WorldPosition = p2
+	end
+end)
+
+--========================================================
+-- ACTUALIZAR PORCENTAJE SUPERIOR
+--========================================================
+
+RunService.RenderStepped:Connect(function()
+
+	if not FAST_PROMPTS_ENABLED then
+		fastFill.Size =
+			UDim2.new(0, 0, 1, 0)
+
+		fastText.Text = "0%"
+		return
+	end
+
+	local character = player.Character
+
+	if not character then
+		return
+	end
+
+	local root =
+		character:FindFirstChild(
+			"HumanoidRootPart"
+		)
+
+	if not root then
+		return
+	end
+
+	local bestProgress = 0
+
+	for _, prompt in ipairs(
+		workspace:GetDescendants()
+	) do
+
+		if prompt:IsA("ProximityPrompt")
+			and not isPlayerCharacterPrompt(prompt) then
+
+			local parent = prompt.Parent
+
+			if parent
+				and parent:IsA("BasePart") then
+
+				local distance =
+					(root.Position - parent.Position).Magnitude
+
+				if distance <= FAST_PRELOAD_DISTANCE then
+
+					local progress =
+						1 - (
+							distance
+							/ FAST_PRELOAD_DISTANCE
+						)
+
+					bestProgress =
+						math.max(
+							bestProgress,
+							progress
+						)
+				end
+			end
+		end
+	end
+
+	fastFill.Size =
+		UDim2.new(
+			bestProgress,
+			0,
+			1,
+			0
+		)
+
+	fastText.Text =
+		tostring(
+			math.floor(bestProgress * 100)
+		) .. "%"
+end)
+
+--========================================================
+-- OCULTAR INDICADOR SI ESTÁ DESACTIVADO
 --========================================================
 
 task.spawn(function()
 
-    while true do
+	while gui.Parent do
 
-        local character = player.Character
+		fastFrame.Visible =
+			FAST_PROMPTS_ENABLED
 
-        if character then
+		ringFolder.Parent =
+			FAST_PROMPTS_ENABLED
+			and workspace
+			or nil
 
-            local humanoid =
-                character:FindFirstChildOfClass("Humanoid")
-
-            if humanoid then
-
-                if autoBatEnabled then
-                    humanoid.WalkSpeed = AUTO_BAT_SPEED
-                else
-                    humanoid.WalkSpeed = currentSpeed
-                end
-
-                humanoid.JumpPower = currentJump
-            end
-        end
-
-        task.wait(0.25)
-    end
+		task.wait(0.2)
+	end
 end)
 
+--========================================================
+-- SOPORTE PARA CAMBIO DE TAMAÑO EN TELÉFONO
+--========================================================
+
+local function updateMobileLayout()
+
+	local camera = workspace.CurrentCamera
+
+	if not camera then
+		return
+	end
+
+	local viewport = camera.ViewportSize
+
+	if viewport.X < 600 then
+
+		-- Panel un poco más centrado en móvil
+		panel.Position =
+			UDim2.new(
+				0.5,
+				-125,
+				0.5,
+				-122
+			)
+
+		openButton.Position =
+			UDim2.new(
+				0,
+				8,
+				0.5,
+				-21
+			)
+
+		independentButtons.Position =
+			UDim2.new(
+				1,
+				-68,
+				0.5,
+				-87
+			)
+
+	else
+
+		panel.Position =
+			UDim2.new(
+				0,
+				58,
+				0.5,
+				-122
+			)
+
+		openButton.Position =
+			UDim2.new(
+				0,
+				8,
+				0.5,
+				-21
+			)
+
+		independentButtons.Position =
+			UDim2.new(
+				1,
+				-68,
+				0.5,
+				-87
+			)
+	end
+end
+
+if workspace.CurrentCamera then
+
+	workspace.CurrentCamera
+		:GetPropertyChangedSignal("ViewportSize")
+		:Connect(updateMobileLayout)
+
+end
+
+updateMobileLayout()
 
 --========================================================
--- FIN DEL SCRIPT
+-- FIN
 --========================================================
